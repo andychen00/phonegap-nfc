@@ -855,6 +855,42 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     });
 }
 
+    // Tambah method ini di class NfcPlugin
+    private byte[] sendAPDUCommand(IsoDep isoDep, String hexCommand) throws IOException {
+        Log.d(TAG, "📤 Sending APDU: " + hexCommand);
+    
+        // Convert hex string to byte array
+        byte[] command = hexStringToByteArray(hexCommand);
+    
+        // Send command
+        byte[] response = isoDep.transceive(command);
+    
+        Log.d(TAG, "📥 Response: " + bytesToHex(response));
+        return response;
+    }
+    
+    // Tambah di class NfcPlugin
+    private byte[] hexStringToByteArray(String s) {
+        if (s == null || s.length() % 2 != 0) {
+            return new byte[0];
+        }
+        byte[] data = new byte[s.length() / 2];
+        for (int i = 0; i < s.length(); i += 2) {
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
+                             + Character.digit(s.charAt(i+1), 16));
+        }
+        return data;
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        if (bytes == null) return "null";
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X", b));
+        }
+        return sb.toString();
+    }
+    
     private void sendDataToJavaScript(JSONObject data) {
     if (ndefCallback == null) {
         Log.e(TAG, "❌ No JavaScript callback registered");
