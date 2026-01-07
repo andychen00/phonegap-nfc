@@ -111,10 +111,24 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
             registerNdefFormatable(callbackContext);
 
         } else if (action.equalsIgnoreCase("addNdefListener")) {
+            Log.d(TAG, "📱 JavaScript registering NFC listener");
+    
             this.ndefCallback = callbackContext;
             PluginResult result = new PluginResult(PluginResult.Status.NO_RESULT);
             result.setKeepCallback(true);
             callbackContext.sendPluginResult(result);
+    
+            // 🚨 TAMBAH INI: Auto-setup jika kosong
+            if (intentFilters.isEmpty()) {
+                Log.d(TAG, "➕ Adding default intent filters");
+                try {
+                    intentFilters.add(new IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED));
+                    intentFilters.add(new IntentFilter(NfcAdapter.ACTION_TECH_DISCOVERED));
+                    intentFilters.add(new IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED));
+                } catch (Exception e) {
+                    Log.e(TAG, "Error adding filters", e);
+                }
+            }
             return true;
 
         }  else if (action.equals(REGISTER_DEFAULT_TAG)) {
@@ -455,29 +469,53 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
       return removed;
   }
 
-    private void startNfc() {
-        createPendingIntent(); // onResume can call startNfc before execute
-
-        getActivity().runOnUiThread(new Runnable() {
-            public void run() {
+   private void startNfc() {
+    Log.d(TAG, "🚀 startNfc() called");
+    
+    createPendingIntent();
+    
+    getActivity().runOnUiThread(new Runnable() {
+        public void run() {
+            try {
                 NfcAdapter nfcAdapter = NfcAdapter.getDefaultAdapter(getActivity());
-
-                if (nfcAdapter != null && !getActivity().isFinishing()) {
-                    try {
-                        nfcAdapter.enableForegroundDispatch(getActivity(), getPendingIntent(), getIntentFilters(), getTechLists());
-
-                        if (p2pMessage != null) {
-                            //nfcAdapter.setNdefPushMessage(p2pMessage, getActivity());
-                        }
-                    } catch (IllegalStateException e) {
-                        // issue 110 - user exits app with home button while nfc is initializing
-                        Log.w(TAG, "Illegal State Exception starting NFC. Assuming application is terminating.");
-                    }
-
+                
+                if (nfcAdapter == null) {
+                    Log.e(TAG, "❌ Device tidak support NFC");
+                    return;
                 }
+                
+                if (!nfcAdapter.isEnabled()) {
+                    Log.e(TAG, "❌ NFC tidak aktif di device");
+                    // Bisa trigger ke JavaScript untuk show alert
+                    return;
+                }
+                
+                Log.d(TAG, "✅ NFC Adapter ready, enabling foreground dispatch");
+                Log.d(TAG, "📋 Intent Filters: " + intentFilters.size());
+                Log.d(TAG, "📋 Tech Lists: " + techLists.size());
+                
+                IntentFilter[] filters = getIntentFilters();
+                String[][] techListsArray = getTechLists();
+                
+                nfcAdapter.enableForegroundDispatch(
+                    getActivity(), 
+                    getPendingIntent(), 
+                    filters, 
+                    techListsArray
+                );
+                
+                Log.d(TAG, "🎉 NFC FOREGROUND DISPATCH ENABLED SUCCESSFULLY");
+                
+            } catch (SecurityException e) {
+                Log.e(TAG, "❌ SecurityException - Missing NFC permission?", e);
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "❌ IllegalStateException - Activity not in foreground?", e);
+            } catch (Exception e) {
+                Log.e(TAG, "❌ Error enabling NFC", e);
             }
-        });
-    }
+        }
+    });
+}
 
     private void stopNfc() {
         Log.d(TAG, "stopNfc");
@@ -770,12 +808,125 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
 
     @Override
     public void onNewIntent(Intent intent) {
-        Log.d(TAG, "onNewIntent " + intent);
-        super.onNewIntent(intent);
-        setIntent(intent);
-        savedIntent = intent;
-        parseMessage();
+    Log.d(TAG, "🎯 NFC INTENT RECEIVED: " + intent.getAction());
+    super.onNewIntent(intent);
+    setIntent(intent);
+    savedIntent = intent;
+    
+    // 🚨🚨🚨 INI YANG PENTING 🚨🚨🚨
+    parseMessage(); // UNCOMMENT LINE INI ATAU TAMBAHKAN
     }
+
+    // 🚨 JIKA METHOD parseMessage() BELUM ADA, TAMBAHKAN INI:
+    void parseMessage() {
+        Log.d(TAG, "🔄 Processing NFC intent...");
+    
+        cordova.getThreadPool().execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Intent intent = getIntent();
+                    String action = intent.getAction();
+                
+                    if (action == null) {
+                        Log.d(TAG, "No action in intent");
+                        return;
+                    }
+                
+                    Log.d(TAG, "Action: " + action);
+                
+                    // Get the NFC tag
+                    Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
+                    if (tag == null) {
+                        Log.e(TAG, "No tag data found!");
+                        return;
+                    }
+                    
+                    Log.d(TAG, "✅ Tag found, ID length: " + (tag.getId() != null ? tag.getId().length : 0));
+                    
+                    // Process based on action type
+                    if (NfcAdapter.ACTION_NDEF_DISCOVERED.equals(action)) {
+                        Log.d(TAG, "NDEF discovered");
+                        processNdefTag(tag, intent);
+                    } else if (NfcAdapter.ACTION_TECH_DISCOVERED.equals(action)) {
+                        Log.d(TAG, "Tech discovered");
+                        processTechTag(tag, intent);
+                    } else if (NfcAdapter.ACTION_TAG_DISCOVERED.equals(action)) {
+                        Log.d(TAG, "Tag discovered");
+                        processSimpleTag(tag);
+                    }
+                    
+                } catch (Exception e) {
+                    Log.e(TAG, "Error parsing message", e);
+                }
+            }
+        });
+    }
+
+// Helper methods
+    private void processNdefTag(Tag tag, Intent intent) {
+        Parcelable[] messages = intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES);
+        Ndef ndef = Ndef.get(tag);
+        fireNdefEvent("ndef", ndef, messages);
+    }
+
+    private void processTechTag(Tag tag, Intent intent) {
+        // Check what technology this tag supports
+        String[] techList = tag.getTechList();
+        for (String tech : techList) {
+            if (tech.contains("Ndef")) {
+                Parcelable[] messages = intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES);
+                Ndef ndef = Ndef.get(tag);
+                fireNdefEvent("ndef", ndef, messages);
+                break;
+            }
+        }
+    }
+
+private void processSimpleTag(Tag tag) {
+    // For simple tag discovery
+    fireTagEvent(tag);
+}
+
+private void fireTagEvent(Tag tag) {
+    if (ndefCallback == null) {
+        Log.e(TAG, "❌ No callback registered for tag event");
+        return;
+    }
+    
+    try {
+        JSONObject tagJson = new JSONObject();
+        JSONObject tagInfo = new JSONObject();
+        
+        // Add tag ID
+        if (tag.getId() != null) {
+            JSONArray idArray = new JSONArray();
+            for (byte b : tag.getId()) {
+                idArray.put(b & 0xFF);
+            }
+            tagInfo.put("id", idArray);
+        }
+        
+        // Add tech list
+        JSONArray techArray = new JSONArray();
+        for (String tech : tag.getTechList()) {
+            techArray.put(tech);
+        }
+        tagInfo.put("techTypes", techArray);
+        
+        tagJson.put("tag", tagInfo);
+        tagJson.put("type", "TAG_DISCOVERED");
+        
+        Log.d(TAG, "Sending tag data to JS");
+        
+        PluginResult result = new PluginResult(PluginResult.Status.OK, tagJson);
+        result.setKeepCallback(true);
+        ndefCallback.sendPluginResult(result);
+        
+    } catch (Exception e) {
+        Log.e(TAG, "Error sending tag event", e);
+    }
+}
 
     private Activity getActivity() {
         return this.cordova.getActivity();
