@@ -74,6 +74,8 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     private CallbackContext shareTagCallback;
     private CallbackContext handoverCallback;
 
+    private CallbackContext ndefCallback;
+
     @Override
     public boolean execute(String action, JSONArray data, CallbackContext callbackContext) throws JSONException {
 
@@ -107,6 +109,13 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
 
         } else if (action.equalsIgnoreCase(REGISTER_NDEF_FORMATABLE)) {
             registerNdefFormatable(callbackContext);
+
+        } else if (action.equalsIgnoreCase("addNdefListener")) {
+            this.ndefCallback = callbackContext;
+            PluginResult result = new PluginResult(PluginResult.Status.NO_RESULT);
+            result.setKeepCallback(true);
+            callbackContext.sendPluginResult(result);
+            return true;
 
         }  else if (action.equals(REGISTER_DEFAULT_TAG)) {
           registerDefaultTag(callbackContext);
@@ -666,27 +675,28 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     }
 
     private void fireNdefEvent(String type, Ndef ndef, Parcelable[] messages) {
+        if (ndefCallback == null) return;
 
         JSONObject jsonObject = buildNdefJSON(ndef, messages);
         String tag = jsonObject.toString();
 
-        Log.v(TAG, command);
+        Log.v(TAG, tag);
         PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
         result.setKeepCallback(true); // listener tetap hidup
         callbackContext.sendPluginResult(result);
     }
 
     private void fireNdefFormatableEvent (Tag tag) {
-
-        Log.v(TAG, command);
+        if (ndefCallback == null) return; 
+        Log.v(TAG, tag);
         PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
         result.setKeepCallback(true); // listener tetap hidup
         callbackContext.sendPluginResult(result);
     }
 
     private void fireTagEvent (Tag tag) {
-
-        Log.v(TAG, command);
+        if (ndefCallback == null) return;
+        Log.v(TAG, tag);
         PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
         result.setKeepCallback(true); // listener tetap hidup
         callbackContext.sendPluginResult(result);
