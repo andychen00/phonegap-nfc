@@ -679,8 +679,8 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
                 // 1. GET ISO DEP
                 IsoDep isoDep = IsoDep.get(tag);
                 if (isoDep == null) {
-                    result.put("success", false);
-                    result.put("message", "Bukan kartu bank");
+                    safePut(result, "success", false);
+                    safePut(result, "message", "Bukan kartu bank");
                     sendToJS(result);
                     return;
                 }
@@ -690,17 +690,16 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
                 isoDep.setTimeout(10000);
                 
                 // 🚨 3. ALL APDU COMMANDS
-                // GANTI HEX DI BAWAH DENGAN YANG ASLI DARI MANDIRI!
                 
                 // 3.1 SELECT eMoney
                 Log.d(TAG, "SELECT command...");
-                String selectHex = "00A40400080000000000000001"; // ⚠️ GANTI
+                String selectHex = "00A40400080000000000000001";
                 byte[] selectCmd = hexStringToByteArray(selectHex);
                 byte[] selectResp = isoDep.transceive(selectCmd);
                 
                 if (!isSuccessAPDU(selectResp)) {
-                    result.put("success", false);
-                    result.put("message", "Bukan kartu Livin Mandiri");
+                    safePut(result, "success", false);
+                    safePut(result, "message", "Bukan kartu Livin Mandiri");
                     isoDep.close();
                     sendToJS(result);
                     return;
@@ -708,38 +707,38 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
                 
                 // 3.2 ATTRIBUTE (11 byte)
                 Log.d(TAG, "ATTRIBUTE command...");
-                String attrHex = "00F210000B"; // ⚠️ GANTI
+                String attrHex = "00F210000B";
                 byte[] attrCmd = hexStringToByteArray(attrHex);
                 byte[] attrResp = isoDep.transceive(attrCmd);
                 
                 // 3.3 UID
                 Log.d(TAG, "UID command...");
-                String uidHex = "FFCA000000"; // ⚠️ GANTI
+                String uidHex = "FFCA000000";
                 byte[] uidCmd = hexStringToByteArray(uidHex);
                 byte[] uidResp = isoDep.transceive(uidCmd);
                 
                 // 3.4 INFO (63 byte)
                 Log.d(TAG, "INFO command...");
-                String infoHex = "00B300003F"; // ⚠️ GANTI
+                String infoHex = "00B300003F";
                 byte[] infoCmd = hexStringToByteArray(infoHex);
                 byte[] infoResp = isoDep.transceive(infoCmd);
                 
                 // 3.5 BALANCE
                 Log.d(TAG, "BALANCE command...");
-                String balanceHex = "00B500000A"; // ⚠️ GANTI
+                String balanceHex = "00B500000A";
                 byte[] balanceCmd = hexStringToByteArray(balanceHex);
                 byte[] balanceResp = isoDep.transceive(balanceCmd);
                 
                 // 4. PARSE RESULTS
-                result.put("success", true);
-                result.put("message", "Kartu Livin Mandiri terbaca");
-                result.put("cardType", "LIVIN_MANDIRI");
+                safePut(result, "success", true);
+                safePut(result, "message", "Kartu Livin Mandiri terbaca");
+                safePut(result, "cardType", "LIVIN_MANDIRI");
                 
                 // UID
                 if (isSuccessAPDU(uidResp) && uidResp.length >= 6) {
                     int uidLen = uidResp.length - 2;
                     byte[] uidData = Arrays.copyOfRange(uidResp, 0, uidLen);
-                    result.put("uid", bytesToHex(uidData));
+                    safePut(result, "uid", bytesToHex(uidData));
                 }
                 
                 // BALANCE
@@ -751,37 +750,37 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
                                      ((balanceResp[1] & 0xFF) << 8) |
                                      ((balanceResp[2] & 0xFF) << 16) |
                                      ((balanceResp[3] & 0xFF) << 24);
-                        result.put("balance", balance);
-                        result.put("appletType", "NEW");
+                        safePut(result, "balance", balance);
+                        safePut(result, "appletType", "NEW");
                         
                     } else if (balanceLen == 10) {
-                        result.put("appletType", "OLD");
-                        result.put("balanceRaw", bytesToHex(Arrays.copyOfRange(balanceResp, 0, 10)));
+                        safePut(result, "appletType", "OLD");
+                        safePut(result, "balanceRaw", bytesToHex(Arrays.copyOfRange(balanceResp, 0, 10)));
                     }
                 }
                 
                 // ATTRIBUTE
                 if (isSuccessAPDU(attrResp) && attrResp.length >= 13) {
                     byte[] attrData = Arrays.copyOfRange(attrResp, 0, 11);
-                    result.put("attribute", bytesToHex(attrData));
+                    safePut(result, "attribute", bytesToHex(attrData));
                 }
                 
                 // INFO
                 if (isSuccessAPDU(infoResp) && infoResp.length >= 65) {
                     byte[] infoData = Arrays.copyOfRange(infoResp, 0, 63);
-                    result.put("info", bytesToHex(infoData));
+                    safePut(result, "info", bytesToHex(infoData));
                 }
                 
                 isoDep.close();
                 Log.d(TAG, "✅ All APDU commands completed");
                 
             } catch (IOException e) {
-                result.put("success", false);
-                result.put("message", "Kartu terlepas: " + e.getMessage());
+                safePut(result, "success", false);
+                safePut(result, "message", "Kartu terlepas: " + e.getMessage());
                 Log.e(TAG, "IO Error", e);
             } catch (Exception e) {
-                result.put("success", false);
-                result.put("message", "Error: " + e.getMessage());
+                safePut(result, "success", false);
+                safePut(result, "message", "Error: " + e.getMessage());
                 Log.e(TAG, "Error", e);
             }
             
@@ -789,6 +788,15 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
             sendToJS(result);
         }
     });
+}
+
+// HELPER METHOD UNTUK AMAN PUT JSON
+private void safePut(JSONObject obj, String key, Object value) {
+    try {
+        obj.put(key, value);
+    } catch (JSONException e) {
+        Log.e(TAG, "JSON Error: " + key + "=" + value, e);
+    }
 }
 
     void parseMessage() {
