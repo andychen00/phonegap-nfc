@@ -17,6 +17,7 @@ import android.nfc.tech.Ndef;
 import android.nfc.tech.NdefFormatable;
 import android.os.Parcelable;
 import android.util.Log;
+import android.nfc.tech.IsoDep;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -74,6 +75,14 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     private CallbackContext shareTagCallback;
     private CallbackContext handoverCallback;
 
+    private static final String SELECT_EMONEY = "selectEmoney";
+    private static final String CARD_ATTRIBUTE = "cardAttribute";
+    private static final String CARD_UID = "cardUid";
+    private static final String CARD_INFO = "cardInfo";
+    private static final String LAST_BALANCE = "lastBalance";
+    private static final String SEND_APDU = "sendApdu";
+
+
     @Override
     public boolean execute(String action, JSONArray data, CallbackContext callbackContext) throws JSONException {
 
@@ -95,7 +104,25 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
 
         if (action.equalsIgnoreCase(REGISTER_MIME_TYPE)) {
             registerMimeType(data, callbackContext);
-
+            
+        } else if (action.equalsIgnoreCase(SELECT_EMONEY)) {
+            selectEmoney(callbackContext);
+            
+        } else if (action.equalsIgnoreCase(CARD_ATTRIBUTE)) {
+            cardAttribute(callbackContext);
+            
+        } else if (action.equalsIgnoreCase(CARD_UID)) {
+            cardUid(callbackContext);
+            
+        } else if (action.equalsIgnoreCase(CARD_INFO)) {
+            cardInfo(callbackContext);
+            
+        } else if (action.equalsIgnoreCase(LAST_BALANCE)) {
+            lastBalance(callbackContext);
+            
+       } else if (action.equalsIgnoreCase(SEND_APDU)) {
+            sendApdu(data, callbackContext);  // data berisi hex command
+            
         } else if (action.equalsIgnoreCase(REMOVE_MIME_TYPE)) {
           removeMimeType(data, callbackContext);
 
@@ -150,7 +177,7 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
 
         return true;
     }
-
+    
     private String getNfcStatus() {
         NfcAdapter nfcAdapter = NfcAdapter.getDefaultAdapter(getActivity());
         if (nfcAdapter == null) {
@@ -613,6 +640,161 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         return techLists.toArray(new String[0][0]);
     }
 
+    private void selectEmoney(final CallbackContext callbackContext) {
+    sendApduCommand(new byte[]{(byte)0x00, (byte)0xA4, (byte)0x04, (byte)0x00, 
+                              (byte)0x08, (byte)0x00, (byte)0x00, (byte)0x00, 
+                              (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x01}, 
+                    callbackContext);
+}
+
+private void cardAttribute(final CallbackContext callbackContext) {
+    sendApduCommand(new byte[]{(byte)0x00, (byte)0xF2, (byte)0x10, (byte)0x00, 
+                              (byte)0x0B}, 
+                    callbackContext);
+}
+
+private void cardUid(final CallbackContext callbackContext) {
+    sendApduCommand(new byte[]{(byte)0xFF, (byte)0xCA, (byte)0x00, (byte)0x00, 
+                              (byte)0x00}, 
+                    callbackContext);
+}
+
+private void cardInfo(final CallbackContext callbackContext) {
+    sendApduCommand(new byte[]{(byte)0x00, (byte)0xB3, (byte)0x00, (byte)0x00, 
+                              (byte)0x3F}, 
+                    callbackContext);
+}
+
+private void lastBalance(final CallbackContext callbackContext) {
+    sendApduCommand(new byte[]{(byte)0x00, (byte)0xB5, (byte)0x00, (byte)0x00, 
+                              (byte)0x0A}, 
+                    callbackContext);
+}
+
+private void sendApduCommand(final byte[] command, final CallbackContext callbackContext) {
+    cordova.getThreadPool().execute(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (getIntent() == null) {
+                    callbackContext.error("No tag found");
+                    return;
+                }
+                
+                Tag tag = savedIntent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
+                if (tag == null) {
+                    callbackContext.error("Tag is null");
+                    return;
+                }
+                
+                // Gunakan IsoDep untuk komunikasi APDU dengan eMoney
+                IsoDep isoDep = IsoDep.get(tag);
+                if (isoDep == null) {
+                    callbackContext.error("Card doesn't support ISO-DEP (ISO 14443-4)");
+                    return;
+                }
+                
+                isoDep.connect();
+                byte[] response = isoDep.transceive(command);
+                isoDep.close();
+                
+                // Parse response (response = data + SW1SW2)
+                if (response.length < 2) {
+                    callbackContext.error("Invalid response length");
+                    return;
+                }
+                
+                // Cek status word 9000 = success
+                int sw1 = response[response.length - 2] & 0xFF;
+                int sw2 = response[response.length - 1] & 0xFF;
+                
+                if (sw1 == 0x90 && sw2 == 0x00) {
+                    // Success, extract data (exclude status bytes)
+                    byte[] data = new byte[response.length - 2];
+                    System.arraycopy(response, 0, data, 0, response.length - 2);
+                    
+                    // Konversi ke hex string untuk dikirim ke JavaScript
+                    String hexResponse = bytesToHex(data);
+                    callbackContext.success(hexResponse);
+                } else {
+                    // APDU error
+                    String error = String.format("APDU Error: %02X%02X", sw1, sw2);
+                    callbackContext.error(error);
+                }
+                
+            } catch (IOException e) {
+                callbackContext.error("IO Error: " + e.getMessage());
+            } catch (Exception e) {
+                callbackContext.error("Error: " + e.getMessage());
+            }
+        }
+    });
+}
+
+// Helper method: convert byte array to hex string
+private String bytesToHex(byte[] bytes) {
+    StringBuilder hexString = new StringBuilder();
+    for (byte b : bytes) {
+        String hex = Integer.toHexString(0xFF & b);
+        if (hex.length() == 1) {
+            hexString.append('0');
+        }
+        hexString.append(hex);
+    }
+    return hexString.toString().toUpperCase();
+}
+    private void sendApdu(JSONArray data, final CallbackContext callbackContext) throws JSONException {
+    final String hexCommand = data.getString(0);
+    
+    cordova.getThreadPool().execute(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (getIntent() == null) {
+                    callbackContext.error("No tag found");
+                    return;
+                }
+                
+                Tag tag = savedIntent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
+                if (tag == null) {
+                    callbackContext.error("Tag is null");
+                    return;
+                }
+                
+                IsoDep isoDep = IsoDep.get(tag);
+                if (isoDep == null) {
+                    callbackContext.error("Card doesn't support ISO-DEP");
+                    return;
+                }
+                
+                // Convert hex string to byte array
+                byte[] command = hexStringToByteArray(hexCommand);
+                
+                isoDep.connect();
+                byte[] response = isoDep.transceive(command);
+                isoDep.close();
+                
+                // Convert response to hex
+                String hexResponse = bytesToHex(response);
+                callbackContext.success(hexResponse);
+                
+            } catch (Exception e) {
+                callbackContext.error("Error: " + e.getMessage());
+            }
+        }
+    });
+}
+    // Helper: hex string to byte array
+    private byte[] hexStringToByteArray(String s) {
+        int len = s.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
+                                 + Character.digit(s.charAt(i + 1), 16));
+        }
+        return data;
+    }
+        
     void parseMessage() {
         cordova.getThreadPool().execute(new Runnable() {
             @Override
