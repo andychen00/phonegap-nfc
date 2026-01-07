@@ -33,6 +33,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Arrays;
 import java.io.IOException;
+import java.util.Date;
+
 
 // using wildcard imports so we can support Cordova 3.x
 
