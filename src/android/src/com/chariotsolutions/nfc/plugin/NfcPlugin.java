@@ -17,6 +17,7 @@ import android.nfc.tech.Ndef;
 import android.nfc.tech.NdefFormatable;
 import android.os.Parcelable;
 import android.util.Log;
+import android.nfc.tech.IsoDep;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Arrays;
+import java.io.IOException;
 
 // using wildcard imports so we can support Cordova 3.x
 
@@ -661,10 +663,9 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         return techLists.toArray(new String[0][0]);
     }
 
-    void parseMessage() {
-    // TAMBAH INI DI AWAL
-    Log.d(TAG, "🔄🔄🔄 PARSE MESSAGE STARTED");
+    // change-start --------------------------------------------------
     
+    void parseMessage() {
     cordova.getThreadPool().execute(new Runnable() {
         @Override
         public void run() {
@@ -672,82 +673,240 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
             Intent intent = getIntent();
             String action = intent.getAction();
             Log.d(TAG, "action " + action);
-            
-            // TAMBAH LOGGING
             if (action == null) {
-                Log.d(TAG, "❌ Action is null, returning");
                 return;
             }
-            
-            Log.d(TAG, "✅ Valid action: " + action);
 
             Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
             Parcelable[] messages = intent.getParcelableArrayExtra((NfcAdapter.EXTRA_NDEF_MESSAGES));
             
-            // 🚨 TAMBAH LOGGING PENTING INI 🚨
-            if (tag == null) {
-                Log.e(TAG, "❌❌❌ TAG IS NULL! No tag data in intent");
-                Log.e(TAG, "Intent extras: " + intent.getExtras());
-            } else {
-                Log.d(TAG, "✅ Tag found! ID bytes: " + tag.getId().length);
-                Log.d(TAG, "Tag tech: " + Arrays.toString(tag.getTechList()));
+            // 🚨 TAMBAHAN UNTUK CEK KARTU BANK
+            if (tag != null) {
+                String[] techList = tag.getTechList();
+                for (String tech : techList) {
+                    if (tech.equals("android.nfc.tech.IsoDep")) {
+                        Log.d(TAG, "🎯 KARTU BANK DETECTED (IsoDep)");
+                        processLivinCard(tag);
+                        return; // Stop processing biasa
+                    }
+                }
             }
             
-            if (messages != null) {
-                Log.d(TAG, "✅ Messages count: " + messages.length);
-            } else {
-                Log.d(TAG, "⚠️ No NDEF messages");
-            }
+            // ... sisa kode NDEF processing tetap ...
 
-            if (action.equals(NfcAdapter.ACTION_NDEF_DISCOVERED)) {
-                Log.d(TAG, "🎯 ACTION_NDEF_DISCOVERED - Processing...");
-                Ndef ndef = Ndef.get(tag);
-                
-                boolean sendNdefMimeEvent = false;
-                if(messages != null && messages.length == 1){
-                    NdefMessage message = (NdefMessage) messages[0];
-                    for(NdefRecord record : message.getRecords()) {
-                        sendNdefMimeEvent = record.getTnf() == NdefRecord.TNF_MIME_MEDIA;
-                        break;
-                    }
-                }
-                
-                if(sendNdefMimeEvent) {
-                    Log.d(TAG, "📧 Firing NDEF MIME event");
-                    fireNdefEvent(NDEF_MIME, ndef, messages);
-                }
-                
-                Log.d(TAG, "📨 Firing NDEF event");
-                fireNdefEvent(NDEF, ndef, messages);
-
-            } else if (action.equals(NfcAdapter.ACTION_TECH_DISCOVERED)) {
-                Log.d(TAG, "🔧 ACTION_TECH_DISCOVERED - Processing...");
-                for (String tagTech : tag.getTechList()) {
-                    Log.d(TAG, "Checking tech: " + tagTech);
-                    if (tagTech.equals(NdefFormatable.class.getName())) {
-                        Log.d(TAG, "🎯 Firing NDEF_FORMATABLE event");
-                        fireNdefFormatableEvent(tag);
-                    } else if (tagTech.equals(Ndef.class.getName())) { //
-                        Log.d(TAG, "🎯 Firing NDEF event (from TECH)");
-                        Ndef ndef = Ndef.get(tag);
-                        fireNdefEvent(NDEF, ndef, messages);
-                    }
-                }
-            }
-
-            if (action.equals(NfcAdapter.ACTION_TAG_DISCOVERED)) {
-                Log.d(TAG, "🏷️ ACTION_TAG_DISCOVERED - Firing tag event");
-                fireTagEvent(tag);
-            }
-
-            // TAMBAH LOGGING SEBELUM CLEAR INTENT
-            Log.d(TAG, "🧹 Clearing intent after processing");
             setIntent(new Intent());
-            
-            Log.d(TAG, "✅✅✅ PARSE MESSAGE COMPLETED");
+            }    
+        });
+    }
+
+    // 🚨 TAMBAH METHOD BARU UNTUK LIVIN CARD
+    private void processLivinCard(Tag tag) {
+    Log.d(TAG, "💰 PROCESSING LIVIN MANDIRI CARD - UPDATED");
+    
+    cordova.getThreadPool().execute(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                IsoDep isoDep = IsoDep.get(tag);
+                if (isoDep == null) {
+                    Log.e(TAG, "❌ Not an IsoDep card");
+                    return;
+                }
+                
+                isoDep.connect();
+                isoDep.setTimeout(15000);
+                Log.d(TAG, "✅ Connected to Livin card");
+                
+                JSONObject cardData = new JSONObject();
+                cardData.put("cardType", "LIVIN_MANDIRI_EMONEY");
+                cardData.put("timestamp", new Date().toString());
+                
+                // 🚨 APDU COMMAND FLOW - SESUAI SPESIFIKASI BARU
+                
+                // 1. SELECT eMoney Applet
+                Log.d(TAG, "Step 1: SELECT eMoney Applet");
+                String selectCmdHex = "00A40400080000000000000001"; // GANTI DENGAN HEX ASLI
+                byte[] selectResponse = sendAPDUCommand(isoDep, selectCmdHex);
+                
+                if (isSuccessAPDU(selectResponse)) {
+                    cardData.put("step1_select", "SUCCESS");
+                    Log.d(TAG, "✅ Applet selected (9000)");
+                    
+                    // 2. GET CARD ATTRIBUTE (For Old Applet Only)
+                    Log.d(TAG, "Step 2: GET CARD ATTRIBUTE");
+                    String attrCmdHex = "00F210000B"; // GANTI DENGAN HEX ASLI
+                    byte[] attrResponse = sendAPDUCommand(isoDep, attrCmdHex);
+                    
+                    if (isSuccessAPDU(attrResponse)) {
+                        // Response: data 11 byte + 9000
+                        int totalLength = attrResponse.length;
+                        int dataLength = totalLength - 2; // Kurangi 2 byte status
+                        
+                        if (dataLength >= 11) {
+                            byte[] attributeData = Arrays.copyOfRange(attrResponse, 0, 11);
+                            cardData.put("cardAttribute", bytesToHex(attributeData));
+                            cardData.put("attrLength", dataLength);
+                            Log.d(TAG, "✅ Attribute: " + bytesToHex(attributeData) + 
+                                  " (" + dataLength + " bytes)");
+                        } else {
+                            Log.w(TAG, "⚠️ Attribute data shorter than expected: " + dataLength);
+                        }
+                    }
+                    
+                    // 3. GET CARD UID
+                    Log.d(TAG, "Step 3: GET CARD UID");
+                    String uidCmdHex = "FFCA000000"; // GANTI DENGAN HEX ASLI
+                    byte[] uidResponse = sendAPDUCommand(isoDep, uidCmdHex);
+                    
+                    if (isSuccessAPDU(uidResponse)) {
+                        // Response: data 4 byte / 7 byte + 9000
+                        int uidDataLength = uidResponse.length - 2;
+                        
+                        if (uidDataLength == 4 || uidDataLength == 7) {
+                            byte[] uidData = Arrays.copyOfRange(uidResponse, 0, uidDataLength);
+                            String uidHex = bytesToHex(uidData);
+                            cardData.put("cardUID", uidHex);
+                            cardData.put("uidLength", uidDataLength);
+                            Log.d(TAG, "✅ UID: " + uidHex + " (" + uidDataLength + " bytes)");
+                        } else {
+                            Log.w(TAG, "⚠️ UID length unexpected: " + uidDataLength);
+                        }
+                    }
+                    
+                    // 4. GET CARD INFO
+                    Log.d(TAG, "Step 4: GET CARD INFO");
+                    String infoCmdHex = "00B300003F"; // GANTI DENGAN HEX ASLI
+                    byte[] infoResponse = sendAPDUCommand(isoDep, infoCmdHex);
+                    
+                    if (isSuccessAPDU(infoResponse)) {
+                        // Response: data 63 byte + 9000
+                        int infoDataLength = infoResponse.length - 2;
+                        
+                        if (infoDataLength >= 63) {
+                            byte[] infoData = Arrays.copyOfRange(infoResponse, 0, 63);
+                            cardData.put("cardInfo", bytesToHex(infoData));
+                            cardData.put("infoLength", infoDataLength);
+                            Log.d(TAG, "✅ Card info: " + bytesToHex(infoData).substring(0, 32) + "...");
+                        } else {
+                            Log.w(TAG, "⚠️ Info data shorter: " + infoDataLength);
+                        }
+                    }
+                    
+                    // 5. GET LAST BALANCE
+                    Log.d(TAG, "Step 5: GET LAST BALANCE");
+                    String balanceCmdHex = "00B500000A"; // GANTI DENGAN HEX ASLI
+                    byte[] balanceResponse = sendAPDUCommand(isoDep, balanceCmdHex);
+                    
+                    if (isSuccessAPDU(balanceResponse)) {
+                        // Response: data 10 byte (old) / 4 byte (new) + 9000
+                        int balanceDataLength = balanceResponse.length - 2;
+                        
+                        cardData.put("balanceResponseLength", balanceDataLength);
+                        
+                        if (balanceDataLength == 4) {
+                            // NEW APPLET: 4 byte, first 4 byte in little endian is balance
+                            int balance = ((balanceResponse[0] & 0xFF) << 0) |
+                                         ((balanceResponse[1] & 0xFF) << 8) |
+                                         ((balanceResponse[2] & 0xFF) << 16) |
+                                         ((balanceResponse[3] & 0xFF) << 24);
+                            
+                            cardData.put("appletType", "NEW");
+                            cardData.put("balance", balance);
+                            cardData.put("balanceFormatted", "Rp " + balance);
+                            cardData.put("balanceBytes", bytesToHex(Arrays.copyOfRange(balanceResponse, 0, 4)));
+                            Log.d(TAG, "✅ New applet balance: Rp " + balance);
+                            
+                        } else if (balanceDataLength == 10) {
+                            // OLD APPLET: 10 byte data
+                            cardData.put("appletType", "OLD");
+                            cardData.put("balanceBytes", bytesToHex(Arrays.copyOfRange(balanceResponse, 0, 10)));
+                            Log.d(TAG, "✅ Old applet balance data (10 bytes)");
+                            
+                            // Jika balance ada di posisi tertentu (sesuai spec)
+                            // Contoh: byte 0-3 adalah balance little endian
+                            int balance = ((balanceResponse[0] & 0xFF) << 0) |
+                                         ((balanceResponse[1] & 0xFF) << 8) |
+                                         ((balanceResponse[2] & 0xFF) << 16) |
+                                         ((balanceResponse[3] & 0xFF) << 24);
+                            cardData.put("possibleBalance", balance);
+                        } else {
+                            Log.w(TAG, "⚠️ Unexpected balance length: " + balanceDataLength);
+                        }
+                    }
+                    
+                    // 🎯 KIRIM DATA KE JAVASCRIPT
+                    sendDataToJavaScript(cardData);
+                    
+                } else {
+                    Log.e(TAG, "❌ SELECT failed");
+                    sendErrorToJS("SELECT_APPLET_FAILED", bytesToHex(selectResponse));
+                }
+                
+                isoDep.close();
+                Log.d(TAG, "✅ Disconnected");
+                
+            } catch (Exception e) {
+                Log.e(TAG, "❌ Error: " + e.getMessage());
+                sendErrorToJS("PROCESSING_ERROR", e.getMessage());
+            }
         }
     });
 }
+
+    private void sendDataToJavaScript(JSONObject data) {
+    if (ndefCallback == null) {
+        Log.e(TAG, "❌ No JavaScript callback registered");
+        return;
+    }
+    
+    try {
+        Log.d(TAG, "📤 Sending to JavaScript: " + data.toString());
+        
+        PluginResult result = new PluginResult(PluginResult.Status.OK, data);
+        result.setKeepCallback(true);
+        ndefCallback.sendPluginResult(result);
+        
+        Log.d(TAG, "✅ Data sent successfully");
+        
+    } catch (Exception e) {
+        Log.e(TAG, "❌ Error sending to JavaScript", e);
+    }
+}
+
+private void sendErrorToJS(String errorType, String details) {
+    try {
+        JSONObject error = new JSONObject();
+        error.put("error", errorType);
+        error.put("details", details);
+        error.put("type", "LIVIN_ERROR");
+        
+        sendDataToJavaScript(error);
+        
+    } catch (Exception e) {
+        Log.e(TAG, "Error creating error JSON", e);
+    }
+}
+    
+// 🚨 HELPER METHODS (tambah di class)
+  private boolean isSuccessAPDU(byte[] response) {
+    if (response == null || response.length < 2) {
+        Log.d(TAG, "❌ Invalid APDU response");
+        return false;
+    }
+    
+    // Check SW1 SW2 = 90 00
+    int sw1 = response[response.length - 2] & 0xFF;
+    int sw2 = response[response.length - 1] & 0xFF;
+    
+    boolean success = (sw1 == 0x90) && (sw2 == 0x00);
+    
+    Log.d(TAG, "APDU Status: " + String.format("%02X%02X", sw1, sw2) + 
+          " = " + (success ? "SUCCESS" : "FAILED"));
+    
+    return success;
+}
+
+    // change-end--------------------------------------------------
 
     private void fireNdefEvent(String type, Ndef ndef, Parcelable[] messages) {
         if (ndefCallback == null) return;
@@ -770,13 +929,36 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         ndefCallback.sendPluginResult(result);
     }
 
-    private void fireTagEvent (Tag tag) {
-        if (ndefCallback == null) return;
-        Log.v(TAG, tag.toString());
-        JSONObject tagJson = Util.tagToJSON(tag);
-        PluginResult result = new PluginResult(PluginResult.Status.OK, tagJson);
-        result.setKeepCallback(true); // listener tetap hidup
-        ndefCallback.sendPluginResult(result);
+    private void fireTagEvent(Tag tag) {
+        Log.d(TAG, "🔥 Firing tag event");
+    
+        if (ndefCallback == null) {
+            Log.e(TAG, "❌ No callback registered");
+            return;
+        }
+        
+        try {
+            JSONObject result = Util.tagToJSON(tag);
+        
+            // 🚨 TAMBAH DETEKSI KARTU BANK
+            String[] techList = tag.getTechList();
+            for (String tech : techList) {
+                if (tech.contains("IsoDep")) {
+                    result.put("cardType", "BANK_CARD_DETECTED");
+                    result.put("message", "This appears to be a bank card. Try Livin processing.");
+                    break;
+                }
+            }
+        
+            Log.d(TAG, "📤 Sending tag data");
+        
+            PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
+            pluginResult.setKeepCallback(true);
+            ndefCallback.sendPluginResult(pluginResult);
+        
+        } catch (Exception e) {
+            Log.e(TAG, "Error in fireTagEvent", e);
+        }
     }
 
     JSONObject buildNdefJSON(Ndef ndef, Parcelable[] messages) {
