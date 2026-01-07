@@ -30,6 +30,7 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Arrays;
 
 // using wildcard imports so we can support Cordova 3.x
 
