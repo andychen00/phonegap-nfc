@@ -497,9 +497,10 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
 
                 if (nfcAdapter == null) {
                     callbackContext.error(STATUS_NO_NFC);
-                } else if (!nfcAdapter.isNdefPushEnabled()) {
-                    callbackContext.error(STATUS_NDEF_PUSH_DISABLED);
-                } else {
+                } // else if (!nfcAdapter.isNdefPushEnabled()) {
+                    // callbackContext.error(STATUS_NDEF_PUSH_DISABLED);
+                // } 
+                else {
                     // nfcAdapter.setOnNdefPushCompleteCallback(NfcPlugin.this, getActivity());
                     try {
                         // nfcAdapter.setBeamPushUris(uris, getActivity());
@@ -525,9 +526,10 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
 
                 if (nfcAdapter == null) {
                     callbackContext.error(STATUS_NO_NFC);
-                } else if (!nfcAdapter.isNdefPushEnabled()) {
-                    callbackContext.error(STATUS_NDEF_PUSH_DISABLED);
-                } else {
+                } // else if (!nfcAdapter.isNdefPushEnabled()) {
+                    // callbackContext.error(STATUS_NDEF_PUSH_DISABLED);
+                // }
+                else {
                     // nfcAdapter.setNdefPushMessage(p2pMessage, getActivity());
                     // nfcAdapter.setOnNdefPushCompleteCallback(NfcPlugin.this, getActivity());
 
