@@ -681,7 +681,7 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         String tag = jsonObject.toString();
 
         Log.v(TAG, tag);
-        PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
+        PluginResult result = new PluginResult(PluginResult.Status.OK, jsonObject);
         result.setKeepCallback(true); // listener tetap hidup
         ndefCallback.sendPluginResult(result);
     }
@@ -689,7 +689,8 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     private void fireNdefFormatableEvent (Tag tag) {
         if (ndefCallback == null) return; 
         Log.v(TAG, tag.toString());
-        PluginResult result = new PluginResult(PluginResult.Status.OK, tag.toString());
+        JSONObject tagJson = Util.tagToJSON(tag);
+        PluginResult result = new PluginResult(PluginResult.Status.OK, tagJson);
         result.setKeepCallback(true); // listener tetap hidup
         ndefCallback.sendPluginResult(result);
     }
@@ -697,7 +698,8 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     private void fireTagEvent (Tag tag) {
         if (ndefCallback == null) return;
         Log.v(TAG, tag.toString());
-        PluginResult result = new PluginResult(PluginResult.Status.OK, tag.toString());
+        JSONObject tagJson = Util.tagToJSON(tag);
+        PluginResult result = new PluginResult(PluginResult.Status.OK, tagJson);
         result.setKeepCallback(true); // listener tetap hidup
         ndefCallback.sendPluginResult(result);
     }
