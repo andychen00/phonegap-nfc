@@ -670,24 +670,26 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         JSONObject jsonObject = buildNdefJSON(ndef, messages);
         String tag = jsonObject.toString();
 
-        String command = MessageFormat.format(javaScriptEventTemplate, type, tag);
         Log.v(TAG, command);
-        this.webView.loadUrl("javascript:" + command);
-        
+        PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
+        result.setKeepCallback(true); // listener tetap hidup
+        callbackContext.sendPluginResult(result);
     }
 
     private void fireNdefFormatableEvent (Tag tag) {
 
-        String command = MessageFormat.format(javaScriptEventTemplate, NDEF_FORMATABLE, Util.tagToJSON(tag));
         Log.v(TAG, command);
-        this.webView.loadUrl("javascript:" + command);
+        PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
+        result.setKeepCallback(true); // listener tetap hidup
+        callbackContext.sendPluginResult(result);
     }
 
     private void fireTagEvent (Tag tag) {
 
-        String command = MessageFormat.format(javaScriptEventTemplate, TAG_DEFAULT, Util.tagToJSON(tag));
         Log.v(TAG, command);
-        this.webView.loadUrl("javascript:" + command);
+        PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
+        result.setKeepCallback(true); // listener tetap hidup
+        callbackContext.sendPluginResult(result);
     }
 
     JSONObject buildNdefJSON(Ndef ndef, Parcelable[] messages) {
