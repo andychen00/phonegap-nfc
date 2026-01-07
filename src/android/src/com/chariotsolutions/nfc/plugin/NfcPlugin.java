@@ -17,7 +17,6 @@ import android.nfc.tech.Ndef;
 import android.nfc.tech.NdefFormatable;
 import android.os.Parcelable;
 import android.util.Log;
-import android.nfc.tech.IsoDep;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -31,10 +30,6 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Arrays;
-import java.io.IOException;
-import java.util.Date;
-
 
 // using wildcard imports so we can support Cordova 3.x
 
@@ -79,8 +74,6 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     private CallbackContext shareTagCallback;
     private CallbackContext handoverCallback;
 
-    private CallbackContext ndefCallback;
-
     @Override
     public boolean execute(String action, JSONArray data, CallbackContext callbackContext) throws JSONException {
 
@@ -114,27 +107,6 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
 
         } else if (action.equalsIgnoreCase(REGISTER_NDEF_FORMATABLE)) {
             registerNdefFormatable(callbackContext);
-
-        } else if (action.equalsIgnoreCase("addNdefListener")) {
-            Log.d(TAG, "📱 JavaScript registering NFC listener");
-    
-            this.ndefCallback = callbackContext;
-            PluginResult result = new PluginResult(PluginResult.Status.NO_RESULT);
-            result.setKeepCallback(true);
-            callbackContext.sendPluginResult(result);
-    
-            // 🚨 TAMBAH INI: Auto-setup jika kosong
-            if (intentFilters.isEmpty()) {
-                Log.d(TAG, "➕ Adding default intent filters");
-                try {
-                    intentFilters.add(new IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED));
-                    intentFilters.add(new IntentFilter(NfcAdapter.ACTION_TECH_DISCOVERED));
-                    intentFilters.add(new IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED));
-                } catch (Exception e) {
-                    Log.e(TAG, "Error adding filters", e);
-                }
-            }
-            return true;
 
         }  else if (action.equals(REGISTER_DEFAULT_TAG)) {
           registerDefaultTag(callbackContext);
@@ -474,53 +446,29 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
       return removed;
   }
 
-   private void startNfc() {
-    Log.d(TAG, "🚀 startNfc() called");
-    
-    createPendingIntent();
-    
-    getActivity().runOnUiThread(new Runnable() {
-        public void run() {
-            try {
+    private void startNfc() {
+        createPendingIntent(); // onResume can call startNfc before execute
+
+        getActivity().runOnUiThread(new Runnable() {
+            public void run() {
                 NfcAdapter nfcAdapter = NfcAdapter.getDefaultAdapter(getActivity());
-                
-                if (nfcAdapter == null) {
-                    Log.e(TAG, "❌ Device tidak support NFC");
-                    return;
+
+                if (nfcAdapter != null && !getActivity().isFinishing()) {
+                    try {
+                        nfcAdapter.enableForegroundDispatch(getActivity(), getPendingIntent(), getIntentFilters(), getTechLists());
+
+                        if (p2pMessage != null) {
+                            //nfcAdapter.setNdefPushMessage(p2pMessage, getActivity());
+                        }
+                    } catch (IllegalStateException e) {
+                        // issue 110 - user exits app with home button while nfc is initializing
+                        Log.w(TAG, "Illegal State Exception starting NFC. Assuming application is terminating.");
+                    }
+
                 }
-                
-                if (!nfcAdapter.isEnabled()) {
-                    Log.e(TAG, "❌ NFC tidak aktif di device");
-                    // Bisa trigger ke JavaScript untuk show alert
-                    return;
-                }
-                
-                Log.d(TAG, "✅ NFC Adapter ready, enabling foreground dispatch");
-                Log.d(TAG, "📋 Intent Filters: " + intentFilters.size());
-                Log.d(TAG, "📋 Tech Lists: " + techLists.size());
-                
-                IntentFilter[] filters = getIntentFilters();
-                String[][] techListsArray = getTechLists();
-                
-                nfcAdapter.enableForegroundDispatch(
-                    getActivity(), 
-                    getPendingIntent(), 
-                    filters, 
-                    techListsArray
-                );
-                
-                Log.d(TAG, "🎉 NFC FOREGROUND DISPATCH ENABLED SUCCESSFULLY");
-                
-            } catch (SecurityException e) {
-                Log.e(TAG, "❌ SecurityException - Missing NFC permission?", e);
-            } catch (IllegalStateException e) {
-                Log.e(TAG, "❌ IllegalStateException - Activity not in foreground?", e);
-            } catch (Exception e) {
-                Log.e(TAG, "❌ Error enabling NFC", e);
             }
-        }
-    });
-}
+        });
+    }
 
     private void stopNfc() {
         Log.d(TAG, "stopNfc");
@@ -665,318 +613,81 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         return techLists.toArray(new String[0][0]);
     }
 
-    // change-start --------------------------------------------------
-    
-  private void processLivinCard(Tag tag) {
-    Log.d(TAG, "💰 PROCESS LIVIN MANDIRI CARD");
-    
-    cordova.getThreadPool().execute(new Runnable() {
-        @Override
-        public void run() {
-            JSONObject result = new JSONObject();
-            
-            try {
-                // 1. GET ISO DEP
-                IsoDep isoDep = IsoDep.get(tag);
-                if (isoDep == null) {
-                    safePut(result, "success", false);
-                    safePut(result, "message", "Bukan kartu bank");
-                    sendToJS(result);
-                    return;
-                }
-                
-                // 2. CONNECT
-                isoDep.connect();
-                isoDep.setTimeout(10000);
-                
-                // 🚨 3. ALL APDU COMMANDS
-                
-                // 3.1 SELECT eMoney
-                Log.d(TAG, "SELECT command...");
-                String selectHex = "00A40400080000000000000001";
-                byte[] selectCmd = hexStringToByteArray(selectHex);
-                byte[] selectResp = isoDep.transceive(selectCmd);
-                
-                if (!isSuccessAPDU(selectResp)) {
-                    safePut(result, "success", false);
-                    safePut(result, "message", "Bukan kartu Livin Mandiri");
-                    isoDep.close();
-                    sendToJS(result);
-                    return;
-                }
-                
-                // 3.2 ATTRIBUTE (11 byte)
-                Log.d(TAG, "ATTRIBUTE command...");
-                String attrHex = "00F210000B";
-                byte[] attrCmd = hexStringToByteArray(attrHex);
-                byte[] attrResp = isoDep.transceive(attrCmd);
-                
-                // 3.3 UID
-                Log.d(TAG, "UID command...");
-                String uidHex = "FFCA000000";
-                byte[] uidCmd = hexStringToByteArray(uidHex);
-                byte[] uidResp = isoDep.transceive(uidCmd);
-                
-                // 3.4 INFO (63 byte)
-                Log.d(TAG, "INFO command...");
-                String infoHex = "00B300003F";
-                byte[] infoCmd = hexStringToByteArray(infoHex);
-                byte[] infoResp = isoDep.transceive(infoCmd);
-                
-                // 3.5 BALANCE
-                Log.d(TAG, "BALANCE command...");
-                String balanceHex = "00B500000A";
-                byte[] balanceCmd = hexStringToByteArray(balanceHex);
-                byte[] balanceResp = isoDep.transceive(balanceCmd);
-                
-                // 4. PARSE RESULTS
-                safePut(result, "success", true);
-                safePut(result, "message", "Kartu Livin Mandiri terbaca");
-                safePut(result, "cardType", "LIVIN_MANDIRI");
-                
-                // UID
-                if (isSuccessAPDU(uidResp) && uidResp.length >= 6) {
-                    int uidLen = uidResp.length - 2;
-                    byte[] uidData = Arrays.copyOfRange(uidResp, 0, uidLen);
-                    safePut(result, "uid", bytesToHex(uidData));
-                }
-                
-                // BALANCE
-                if (isSuccessAPDU(balanceResp) && balanceResp.length >= 6) {
-                    int balanceLen = balanceResp.length - 2;
-                    
-                    if (balanceLen == 4) {
-                        int balance = ((balanceResp[0] & 0xFF) << 0) |
-                                     ((balanceResp[1] & 0xFF) << 8) |
-                                     ((balanceResp[2] & 0xFF) << 16) |
-                                     ((balanceResp[3] & 0xFF) << 24);
-                        safePut(result, "balance", balance);
-                        safePut(result, "appletType", "NEW");
-                        
-                    } else if (balanceLen == 10) {
-                        safePut(result, "appletType", "OLD");
-                        safePut(result, "balanceRaw", bytesToHex(Arrays.copyOfRange(balanceResp, 0, 10)));
-                    }
-                }
-                
-                // ATTRIBUTE
-                if (isSuccessAPDU(attrResp) && attrResp.length >= 13) {
-                    byte[] attrData = Arrays.copyOfRange(attrResp, 0, 11);
-                    safePut(result, "attribute", bytesToHex(attrData));
-                }
-                
-                // INFO
-                if (isSuccessAPDU(infoResp) && infoResp.length >= 65) {
-                    byte[] infoData = Arrays.copyOfRange(infoResp, 0, 63);
-                    safePut(result, "info", bytesToHex(infoData));
-                }
-                
-                isoDep.close();
-                Log.d(TAG, "✅ All APDU commands completed");
-                
-            } catch (IOException e) {
-                safePut(result, "success", false);
-                safePut(result, "message", "Kartu terlepas: " + e.getMessage());
-                Log.e(TAG, "IO Error", e);
-            } catch (Exception e) {
-                safePut(result, "success", false);
-                safePut(result, "message", "Error: " + e.getMessage());
-                Log.e(TAG, "Error", e);
-            }
-            
-            // 5. SEND TO JAVASCRIPT
-            sendToJS(result);
-        }
-    });
-}
-
-// HELPER METHOD UNTUK AMAN PUT JSON
-private void safePut(JSONObject obj, String key, Object value) {
-    try {
-        obj.put(key, value);
-    } catch (JSONException e) {
-        Log.e(TAG, "JSON Error: " + key + "=" + value, e);
-    }
-}
-
     void parseMessage() {
-    cordova.getThreadPool().execute(new Runnable() {
-        @Override
-        public void run() {
-            Log.d(TAG, "parseMessage " + getIntent());
-            Intent intent = getIntent();
-            String action = intent.getAction();
-            Log.d(TAG, "action " + action);
-            
-            if (action == null) {
-                return;
-            }
+        cordova.getThreadPool().execute(new Runnable() {
+            @Override
+            public void run() {
+                Log.d(TAG, "parseMessage " + getIntent());
+                Intent intent = getIntent();
+                String action = intent.getAction();
+                Log.d(TAG, "action " + action);
+                if (action == null) {
+                    return;
+                }
 
-            Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
-            Parcelable[] messages = intent.getParcelableArrayExtra((NfcAdapter.EXTRA_NDEF_MESSAGES));
+                Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
+                Parcelable[] messages = intent.getParcelableArrayExtra((NfcAdapter.EXTRA_NDEF_MESSAGES));
 
-            // 🚨 CEK APAKAH KARTU BANK
-            if (tag != null) {
-                boolean isBankCard = false;
-                String[] techList = tag.getTechList();
-                
-                for (String tech : techList) {
-                    Log.d(TAG, "Tech: " + tech);
-                    if (tech.contains("IsoDep")) {
-                        isBankCard = true;
-                        break;
+                if (action.equals(NfcAdapter.ACTION_NDEF_DISCOVERED)) {
+                    Ndef ndef = Ndef.get(tag);
+                    boolean sendNdefMimeEvent = false;
+                    if(messages.length == 1){
+                        NdefMessage message = (NdefMessage) messages[0];
+                        for(NdefRecord record : message.getRecords()) {
+                            sendNdefMimeEvent = record.getTnf() == NdefRecord.TNF_MIME_MEDIA;
+                            break;
+                        }
+                    }
+                    if(sendNdefMimeEvent) {
+                        fireNdefEvent(NDEF_MIME, ndef, messages);
+                    }
+                    
+                    fireNdefEvent(NDEF, ndef, messages);
+
+                } else if (action.equals(NfcAdapter.ACTION_TECH_DISCOVERED)) {
+                    for (String tagTech : tag.getTechList()) {
+                        Log.d(TAG, tagTech);
+                        if (tagTech.equals(NdefFormatable.class.getName())) {
+                            fireNdefFormatableEvent(tag);
+                        } else if (tagTech.equals(Ndef.class.getName())) { //
+                            Ndef ndef = Ndef.get(tag);
+                            fireNdefEvent(NDEF, ndef, messages);
+                        }
                     }
                 }
-                
-                if (isBankCard) {
-                    Log.d(TAG, "🔄 Processing as Livin card...");
-                    processLivinCard(tag);
-                    return; // STOP NDEF PROCESSING
+
+                if (action.equals(NfcAdapter.ACTION_TAG_DISCOVERED)) {
+                    fireTagEvent(tag);
                 }
+
+                setIntent(new Intent());
             }
-            
-            // 🚨 PROCESS NDEF NORMAL (untuk NFC biasa)
-            if (action.equals(NfcAdapter.ACTION_NDEF_DISCOVERED)) {
-                Ndef ndef = Ndef.get(tag);
-                boolean sendNdefMimeEvent = false;
-                if(messages.length == 1){
-                    NdefMessage message = (NdefMessage) messages[0];
-                    for(NdefRecord record : message.getRecords()) {
-                        sendNdefMimeEvent = record.getTnf() == NdefRecord.TNF_MIME_MEDIA;
-                        break;
-                    }
-                }
-                if(sendNdefMimeEvent) {
-                    fireNdefEvent(NDEF_MIME, ndef, messages);
-                }
-                
-                fireNdefEvent(NDEF, ndef, messages);
-
-            } else if (action.equals(NfcAdapter.ACTION_TECH_DISCOVERED)) {
-                for (String tagTech : tag.getTechList()) {
-                    Log.d(TAG, tagTech);
-                    if (tagTech.equals(NdefFormatable.class.getName())) {
-                        fireNdefFormatableEvent(tag);
-                    } else if (tagTech.equals(Ndef.class.getName())) {
-                        Ndef ndef = Ndef.get(tag);
-                        fireNdefEvent(NDEF, ndef, messages);
-                    }
-                }
-            }
-
-            if (action.equals(NfcAdapter.ACTION_TAG_DISCOVERED)) {
-                fireTagEvent(tag);
-            }
-
-            setIntent(new Intent());
-        }
-    });
-}
-// HEX TO BYTE ARRAY
-private byte[] hexStringToByteArray(String s) {
-    if (s == null || s.length() % 2 != 0) {
-        Log.e(TAG, "Invalid hex string: " + s);
-        return new byte[0];
+        });
     }
-    byte[] data = new byte[s.length() / 2];
-    for (int i = 0; i < s.length(); i += 2) {
-        data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
-                             + Character.digit(s.charAt(i+1), 16));
-    }
-    return data;
-}
-
-// BYTES TO HEX STRING
-private String bytesToHex(byte[] bytes) {
-    if (bytes == null) return "null";
-    StringBuilder sb = new StringBuilder();
-    for (byte b : bytes) {
-        sb.append(String.format("%02X", b));
-    }
-    return sb.toString();
-}
-
-// CHECK APDU SUCCESS (90 00)
-private boolean isSuccessAPDU(byte[] response) {
-    if (response == null || response.length < 2) {
-        Log.d(TAG, "Invalid APDU response");
-        return false;
-    }
-    byte sw1 = response[response.length - 2];
-    byte sw2 = response[response.length - 1];
-    boolean success = (sw1 & 0xFF) == 0x90 && (sw2 & 0xFF) == 0x00;
-    Log.d(TAG, "APDU Status: " + String.format("%02X%02X", sw1 & 0xFF, sw2 & 0xFF));
-    return success;
-}
-
-// SEND TO JAVASCRIPT
-private void sendToJS(JSONObject data) {
-    if (ndefCallback == null) {
-        Log.e(TAG, "❌ No JavaScript callback");
-        return;
-    }
-    try {
-        PluginResult result = new PluginResult(PluginResult.Status.OK, data);
-        result.setKeepCallback(true);
-        ndefCallback.sendPluginResult(result);
-        Log.d(TAG, "✅ Sent to JS");
-    } catch (Exception e) {
-        Log.e(TAG, "❌ Error sending to JS", e);
-    }
-}
-    // change-end--------------------------------------------------
 
     private void fireNdefEvent(String type, Ndef ndef, Parcelable[] messages) {
-        if (ndefCallback == null) return;
 
         JSONObject jsonObject = buildNdefJSON(ndef, messages);
         String tag = jsonObject.toString();
 
-        Log.v(TAG, tag);
-        PluginResult result = new PluginResult(PluginResult.Status.OK, jsonObject);
-        result.setKeepCallback(true); // listener tetap hidup
-        ndefCallback.sendPluginResult(result);
+        String command = MessageFormat.format(javaScriptEventTemplate, type, tag);
+        Log.v(TAG, command);
+        this.webView.loadUrl("javascript:" + command);
+        
     }
 
     private void fireNdefFormatableEvent (Tag tag) {
-        if (ndefCallback == null) return; 
-        Log.v(TAG, tag.toString());
-        JSONObject tagJson = Util.tagToJSON(tag);
-        PluginResult result = new PluginResult(PluginResult.Status.OK, tagJson);
-        result.setKeepCallback(true); // listener tetap hidup
-        ndefCallback.sendPluginResult(result);
+
+        String command = MessageFormat.format(javaScriptEventTemplate, NDEF_FORMATABLE, Util.tagToJSON(tag));
+        Log.v(TAG, command);
+        this.webView.loadUrl("javascript:" + command);
     }
 
-    private void fireTagEvent(Tag tag) {
-        Log.d(TAG, "🔥 Firing tag event");
-    
-        if (ndefCallback == null) {
-            Log.e(TAG, "❌ No callback registered");
-            return;
-        }
-        
-        try {
-            JSONObject result = Util.tagToJSON(tag);
-        
-            // 🚨 TAMBAH DETEKSI KARTU BANK
-            String[] techList = tag.getTechList();
-            for (String tech : techList) {
-                if (tech.contains("IsoDep")) {
-                    result.put("cardType", "BANK_CARD_DETECTED");
-                    result.put("message", "This appears to be a bank card. Try Livin processing.");
-                    break;
-                }
-            }
-        
-            Log.d(TAG, "📤 Sending tag data");
-        
-            PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, result);
-            pluginResult.setKeepCallback(true);
-            ndefCallback.sendPluginResult(pluginResult);
-        
-        } catch (Exception e) {
-            Log.e(TAG, "Error in fireTagEvent", e);
-        }
+    private void fireTagEvent (Tag tag) {
+
+        String command = MessageFormat.format(javaScriptEventTemplate, TAG_DEFAULT, Util.tagToJSON(tag));
+        Log.v(TAG, command);
+        this.webView.loadUrl("javascript:" + command);
     }
 
     JSONObject buildNdefJSON(Ndef ndef, Parcelable[] messages) {
@@ -1045,13 +756,11 @@ private void sendToJS(JSONObject data) {
 
     @Override
     public void onNewIntent(Intent intent) {
-    Log.d(TAG, "🎯 NFC INTENT RECEIVED: " + intent.getAction());
-    super.onNewIntent(intent);
-    setIntent(intent);
-    savedIntent = intent;
-    
-    // 🚨🚨🚨 INI YANG PENTING 🚨🚨🚨
-    parseMessage(); // UNCOMMENT LINE INI ATAU TAMBAHKAN
+        Log.d(TAG, "onNewIntent " + intent);
+        super.onNewIntent(intent);
+        setIntent(intent);
+        savedIntent = intent;
+        parseMessage();
     }
 
     private Activity getActivity() {
