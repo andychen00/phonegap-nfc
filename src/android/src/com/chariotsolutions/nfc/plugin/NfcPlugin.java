@@ -683,7 +683,7 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         Log.v(TAG, tag);
         PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
         result.setKeepCallback(true); // listener tetap hidup
-        callbackContext.sendPluginResult(result);
+        ndefCallback.sendPluginResult(result);
     }
 
     private void fireNdefFormatableEvent (Tag tag) {
@@ -691,7 +691,7 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         Log.v(TAG, tag);
         PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
         result.setKeepCallback(true); // listener tetap hidup
-        callbackContext.sendPluginResult(result);
+        ndefCallback.sendPluginResult(result);
     }
 
     private void fireTagEvent (Tag tag) {
@@ -699,7 +699,7 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         Log.v(TAG, tag);
         PluginResult result = new PluginResult(PluginResult.Status.OK, tag);
         result.setKeepCallback(true); // listener tetap hidup
-        callbackContext.sendPluginResult(result);
+        ndefCallback.sendPluginResult(result);
     }
 
     JSONObject buildNdefJSON(Ndef ndef, Parcelable[] messages) {
