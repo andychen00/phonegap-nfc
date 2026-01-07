@@ -661,56 +661,92 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     }
 
     void parseMessage() {
-        cordova.getThreadPool().execute(new Runnable() {
-            @Override
-            public void run() {
-                Log.d(TAG, "parseMessage " + getIntent());
-                Intent intent = getIntent();
-                String action = intent.getAction();
-                Log.d(TAG, "action " + action);
-                if (action == null) {
-                    return;
-                }
-
-                Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
-                Parcelable[] messages = intent.getParcelableArrayExtra((NfcAdapter.EXTRA_NDEF_MESSAGES));
-
-                if (action.equals(NfcAdapter.ACTION_NDEF_DISCOVERED)) {
-                    Ndef ndef = Ndef.get(tag);
-                    boolean sendNdefMimeEvent = false;
-                    if(messages.length == 1){
-                        NdefMessage message = (NdefMessage) messages[0];
-                        for(NdefRecord record : message.getRecords()) {
-                            sendNdefMimeEvent = record.getTnf() == NdefRecord.TNF_MIME_MEDIA;
-                            break;
-                        }
-                    }
-                    if(sendNdefMimeEvent) {
-                        fireNdefEvent(NDEF_MIME, ndef, messages);
-                    }
-                    
-                    fireNdefEvent(NDEF, ndef, messages);
-
-                } else if (action.equals(NfcAdapter.ACTION_TECH_DISCOVERED)) {
-                    for (String tagTech : tag.getTechList()) {
-                        Log.d(TAG, tagTech);
-                        if (tagTech.equals(NdefFormatable.class.getName())) {
-                            fireNdefFormatableEvent(tag);
-                        } else if (tagTech.equals(Ndef.class.getName())) { //
-                            Ndef ndef = Ndef.get(tag);
-                            fireNdefEvent(NDEF, ndef, messages);
-                        }
-                    }
-                }
-
-                if (action.equals(NfcAdapter.ACTION_TAG_DISCOVERED)) {
-                    fireTagEvent(tag);
-                }
-
-                setIntent(new Intent());
+    // TAMBAH INI DI AWAL
+    Log.d(TAG, "🔄🔄🔄 PARSE MESSAGE STARTED");
+    
+    cordova.getThreadPool().execute(new Runnable() {
+        @Override
+        public void run() {
+            Log.d(TAG, "parseMessage " + getIntent());
+            Intent intent = getIntent();
+            String action = intent.getAction();
+            Log.d(TAG, "action " + action);
+            
+            // TAMBAH LOGGING
+            if (action == null) {
+                Log.d(TAG, "❌ Action is null, returning");
+                return;
             }
-        });
-    }
+            
+            Log.d(TAG, "✅ Valid action: " + action);
+
+            Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
+            Parcelable[] messages = intent.getParcelableArrayExtra((NfcAdapter.EXTRA_NDEF_MESSAGES));
+            
+            // 🚨 TAMBAH LOGGING PENTING INI 🚨
+            if (tag == null) {
+                Log.e(TAG, "❌❌❌ TAG IS NULL! No tag data in intent");
+                Log.e(TAG, "Intent extras: " + intent.getExtras());
+            } else {
+                Log.d(TAG, "✅ Tag found! ID bytes: " + tag.getId().length);
+                Log.d(TAG, "Tag tech: " + Arrays.toString(tag.getTechList()));
+            }
+            
+            if (messages != null) {
+                Log.d(TAG, "✅ Messages count: " + messages.length);
+            } else {
+                Log.d(TAG, "⚠️ No NDEF messages");
+            }
+
+            if (action.equals(NfcAdapter.ACTION_NDEF_DISCOVERED)) {
+                Log.d(TAG, "🎯 ACTION_NDEF_DISCOVERED - Processing...");
+                Ndef ndef = Ndef.get(tag);
+                
+                boolean sendNdefMimeEvent = false;
+                if(messages != null && messages.length == 1){
+                    NdefMessage message = (NdefMessage) messages[0];
+                    for(NdefRecord record : message.getRecords()) {
+                        sendNdefMimeEvent = record.getTnf() == NdefRecord.TNF_MIME_MEDIA;
+                        break;
+                    }
+                }
+                
+                if(sendNdefMimeEvent) {
+                    Log.d(TAG, "📧 Firing NDEF MIME event");
+                    fireNdefEvent(NDEF_MIME, ndef, messages);
+                }
+                
+                Log.d(TAG, "📨 Firing NDEF event");
+                fireNdefEvent(NDEF, ndef, messages);
+
+            } else if (action.equals(NfcAdapter.ACTION_TECH_DISCOVERED)) {
+                Log.d(TAG, "🔧 ACTION_TECH_DISCOVERED - Processing...");
+                for (String tagTech : tag.getTechList()) {
+                    Log.d(TAG, "Checking tech: " + tagTech);
+                    if (tagTech.equals(NdefFormatable.class.getName())) {
+                        Log.d(TAG, "🎯 Firing NDEF_FORMATABLE event");
+                        fireNdefFormatableEvent(tag);
+                    } else if (tagTech.equals(Ndef.class.getName())) { //
+                        Log.d(TAG, "🎯 Firing NDEF event (from TECH)");
+                        Ndef ndef = Ndef.get(tag);
+                        fireNdefEvent(NDEF, ndef, messages);
+                    }
+                }
+            }
+
+            if (action.equals(NfcAdapter.ACTION_TAG_DISCOVERED)) {
+                Log.d(TAG, "🏷️ ACTION_TAG_DISCOVERED - Firing tag event");
+                fireTagEvent(tag);
+            }
+
+            // TAMBAH LOGGING SEBELUM CLEAR INTENT
+            Log.d(TAG, "🧹 Clearing intent after processing");
+            setIntent(new Intent());
+            
+            Log.d(TAG, "✅✅✅ PARSE MESSAGE COMPLETED");
+        }
+    });
+}
 
     private void fireNdefEvent(String type, Ndef ndef, Parcelable[] messages) {
         if (ndefCallback == null) return;
@@ -816,117 +852,6 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     // 🚨🚨🚨 INI YANG PENTING 🚨🚨🚨
     parseMessage(); // UNCOMMENT LINE INI ATAU TAMBAHKAN
     }
-
-    // 🚨 JIKA METHOD parseMessage() BELUM ADA, TAMBAHKAN INI:
-    void parseMessage() {
-        Log.d(TAG, "🔄 Processing NFC intent...");
-    
-        cordova.getThreadPool().execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    Intent intent = getIntent();
-                    String action = intent.getAction();
-                
-                    if (action == null) {
-                        Log.d(TAG, "No action in intent");
-                        return;
-                    }
-                
-                    Log.d(TAG, "Action: " + action);
-                
-                    // Get the NFC tag
-                    Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
-                    if (tag == null) {
-                        Log.e(TAG, "No tag data found!");
-                        return;
-                    }
-                    
-                    Log.d(TAG, "✅ Tag found, ID length: " + (tag.getId() != null ? tag.getId().length : 0));
-                    
-                    // Process based on action type
-                    if (NfcAdapter.ACTION_NDEF_DISCOVERED.equals(action)) {
-                        Log.d(TAG, "NDEF discovered");
-                        processNdefTag(tag, intent);
-                    } else if (NfcAdapter.ACTION_TECH_DISCOVERED.equals(action)) {
-                        Log.d(TAG, "Tech discovered");
-                        processTechTag(tag, intent);
-                    } else if (NfcAdapter.ACTION_TAG_DISCOVERED.equals(action)) {
-                        Log.d(TAG, "Tag discovered");
-                        processSimpleTag(tag);
-                    }
-                    
-                } catch (Exception e) {
-                    Log.e(TAG, "Error parsing message", e);
-                }
-            }
-        });
-    }
-
-// Helper methods
-    private void processNdefTag(Tag tag, Intent intent) {
-        Parcelable[] messages = intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES);
-        Ndef ndef = Ndef.get(tag);
-        fireNdefEvent("ndef", ndef, messages);
-    }
-
-    private void processTechTag(Tag tag, Intent intent) {
-        // Check what technology this tag supports
-        String[] techList = tag.getTechList();
-        for (String tech : techList) {
-            if (tech.contains("Ndef")) {
-                Parcelable[] messages = intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES);
-                Ndef ndef = Ndef.get(tag);
-                fireNdefEvent("ndef", ndef, messages);
-                break;
-            }
-        }
-    }
-
-private void processSimpleTag(Tag tag) {
-    // For simple tag discovery
-    fireTagEvent(tag);
-}
-
-private void fireTagEvent(Tag tag) {
-    if (ndefCallback == null) {
-        Log.e(TAG, "❌ No callback registered for tag event");
-        return;
-    }
-    
-    try {
-        JSONObject tagJson = new JSONObject();
-        JSONObject tagInfo = new JSONObject();
-        
-        // Add tag ID
-        if (tag.getId() != null) {
-            JSONArray idArray = new JSONArray();
-            for (byte b : tag.getId()) {
-                idArray.put(b & 0xFF);
-            }
-            tagInfo.put("id", idArray);
-        }
-        
-        // Add tech list
-        JSONArray techArray = new JSONArray();
-        for (String tech : tag.getTechList()) {
-            techArray.put(tech);
-        }
-        tagInfo.put("techTypes", techArray);
-        
-        tagJson.put("tag", tagInfo);
-        tagJson.put("type", "TAG_DISCOVERED");
-        
-        Log.d(TAG, "Sending tag data to JS");
-        
-        PluginResult result = new PluginResult(PluginResult.Status.OK, tagJson);
-        result.setKeepCallback(true);
-        ndefCallback.sendPluginResult(result);
-        
-    } catch (Exception e) {
-        Log.e(TAG, "Error sending tag event", e);
-    }
-}
 
     private Activity getActivity() {
         return this.cordova.getActivity();
