@@ -56,6 +56,16 @@ public class Util {
             try {
                 json.put("id", byteArrayToJSON(tag.getId()));
                 json.put("techTypes", new JSONArray(Arrays.asList(tag.getTechList())));
+            
+                // ===== CUMA TAMBAH INI =====
+                // Cek apakah kartu e-money (ISO-DEP)
+                boolean isIsoDep = false;
+                for (String tech : tag.getTechList()) {
+                    if (tech.contains("IsoDep")) isIsoDep = true;
+                }
+                json.put("isIsoDep", isIsoDep);
+                // ===== SAMPAI SINI (3 line doang!) =====
+            
             } catch (JSONException e) {
                 Log.e(TAG, "Failed to convert tag into json: " + tag.toString(), e);
             }
