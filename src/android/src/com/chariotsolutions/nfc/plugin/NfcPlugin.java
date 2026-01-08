@@ -169,10 +169,26 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         }
     }
 
+    // Di method registerDefaultTag() atau di init(), tambah:
     private void registerDefaultTag(CallbackContext callbackContext) {
-      addTagFilter();
-      callbackContext.success();
-  }
+        addTagFilter();
+    
+        // ===== TAMBAH INI =====
+        // Untuk deteksi kartu e-money/bank (ISO-DEP)
+        IntentFilter isoDepFilter = new IntentFilter(NfcAdapter.ACTION_TECH_DISCOVERED);
+        try {
+            isoDepFilter.addDataType("*/*"); // Accept all MIME types
+        } catch (MalformedMimeTypeException e) {
+        // Ignore
+        }
+        intentFilters.add(isoDepFilter);
+    
+        // Tambah tech list untuk ISO-DEP
+        addTechList(new String[]{android.nfc.tech.IsoDep.class.getName()});
+        // ===== SAMPAI SINI =====
+    
+        callbackContext.success();
+    }
 
     private void removeDefaultTag(CallbackContext callbackContext) {
       removeTagFilter();
@@ -627,62 +643,81 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
         return intentFilters.toArray(new IntentFilter[intentFilters.size()]);
     }
 
+    // Di method getTechLists(), pastikan mengembalikan array yang benar:
     private String[][] getTechLists() {
-        //noinspection ToArrayCallWithZeroLengthArrayArgument
-        return techLists.toArray(new String[0][0]);
+    // Pastikan ada IsoDep dalam tech list
+    // Contoh return seperti ini:
+        return new String[][] {
+        new String[] { android.nfc.tech.Ndef.class.getName() },
+        new String[] { android.nfc.tech.NdefFormatable.class.getName() },
+        new String[] { android.nfc.tech.IsoDep.class.getName() },  // ← TAMBAH INI
+        new String[] { android.nfc.tech.NfcA.class.getName() },
+        new String[] { android.nfc.tech.NfcB.class.getName() }
+        };
     }
         
     void parseMessage() {
-        cordova.getThreadPool().execute(new Runnable() {
-            @Override
-            public void run() {
-                Log.d(TAG, "parseMessage " + getIntent());
-                Intent intent = getIntent();
-                String action = intent.getAction();
-                Log.d(TAG, "action " + action);
-                if (action == null) {
-                    return;
-                }
+    cordova.getThreadPool().execute(new Runnable() {
+        @Override
+        public void run() {
+            Log.d(TAG, "parseMessage " + getIntent());
+            Intent intent = getIntent();
+            String action = intent.getAction();
+            Log.d(TAG, "action " + action);
+            if (action == null) {
+                return;
+            }
 
-                Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
-                Parcelable[] messages = intent.getParcelableArrayExtra((NfcAdapter.EXTRA_NDEF_MESSAGES));
+            Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
+            Parcelable[] messages = intent.getParcelableArrayExtra((NfcAdapter.EXTRA_NDEF_MESSAGES));
 
-                if (action.equals(NfcAdapter.ACTION_NDEF_DISCOVERED)) {
-                    Ndef ndef = Ndef.get(tag);
-                    boolean sendNdefMimeEvent = false;
-                    if(messages.length == 1){
-                        NdefMessage message = (NdefMessage) messages[0];
-                        for(NdefRecord record : message.getRecords()) {
-                            sendNdefMimeEvent = record.getTnf() == NdefRecord.TNF_MIME_MEDIA;
-                            break;
-                        }
-                    }
-                    if(sendNdefMimeEvent) {
-                        fireNdefEvent(NDEF_MIME, ndef, messages);
+            // ===== TAMBAH HANDLE UNTUK TECH_DISCOVERED =====
+            if (action.equals(NfcAdapter.ACTION_TECH_DISCOVERED)) {
+                String[] techList = tag.getTechList();
+                for (String tech : techList) {
+                    Log.d(TAG, "Tech: " + tech);
+                    
+                    // Cek jika kartu support ISO-DEP (e-money/bank card)
+                    if (tech.equals(android.nfc.tech.IsoDep.class.getName())) {
+                        fireIsoDepEvent(tag);
+                        return;
                     }
                     
-                    fireNdefEvent(NDEF, ndef, messages);
-
-                } else if (action.equals(NfcAdapter.ACTION_TECH_DISCOVERED)) {
-                    for (String tagTech : tag.getTechList()) {
-                        Log.d(TAG, tagTech);
-                        if (tagTech.equals(NdefFormatable.class.getName())) {
-                            fireNdefFormatableEvent(tag);
-                        } else if (tagTech.equals(Ndef.class.getName())) { //
-                            Ndef ndef = Ndef.get(tag);
-                            fireNdefEvent(NDEF, ndef, messages);
+                    if (tech.equals(android.nfc.tech.NdefFormatable.class.getName())) {
+                        fireNdefFormatableEvent(tag);
+                    } else if (tech.equals(android.nfc.tech.Ndef.class.getName())) {
+                        Ndef ndef = Ndef.get(tag);
+                        fireNdefEvent(NDEF, ndef, messages);
                         }
                     }
                 }
+                // ===== SAMPAI SINI =====
 
-                if (action.equals(NfcAdapter.ACTION_TAG_DISCOVERED)) {
-                    fireTagEvent(tag);
-                }
-
-                setIntent(new Intent());
+                // ... existing code untuk NDEF_DISCOVERED dan TAG_DISCOVERED ...
             }
         });
     }
+
+    // ===== TAMBAH METHOD BARU =====
+    private void fireIsoDepEvent(Tag tag) {
+        JSONObject tagJson = Util.tagToJSON(tag);
+        try {
+            // Tambah flag bahwa ini kartu ISO-DEP
+            tagJson.put("isIsoDep", true);
+            tagJson.put("type", "ISO-DEP");
+        
+            String command = MessageFormat.format(javaScriptEventTemplate, "tag", tagJson.toString());
+            Log.v(TAG, "ISO-DEP Event: " + command);
+            this.webView.loadUrl("javascript:" + command);
+        
+            // Juga simpan tag untuk APDU nanti
+            savedIntent = getIntent();
+        
+        } catch (JSONException e) {
+            Log.e(TAG, "Error creating ISO-DEP JSON", e);
+        }
+    }
+    // ===== SAMPAI SINI =====
 
     private void fireNdefEvent(String type, Ndef ndef, Parcelable[] messages) {
 
