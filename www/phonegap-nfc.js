@@ -462,6 +462,12 @@ var nfc = {
     erase: function (win, fail) {
         cordova.exec(win, fail, "NfcPlugin", "eraseTag", [[]]);
     },
+    
+    // ==== SAMPAI SINI ====
+    sendAPDU: function (apduHex, win, fail) {
+        cordova.exec(win, fail, "NfcPlugin", "sendAPDU", [apduHex]);
+    },
+    // ==== SAMPAI SINI ====
 
     enabled: function (win, fail) {
         cordova.exec(win, fail, "NfcPlugin", "enabled", [[]]);
