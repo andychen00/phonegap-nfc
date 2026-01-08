@@ -831,7 +831,7 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
      * Kirim single APDU command ke kartu
      * Data: ["APDU_HEX_STRING"]
      */
-    private void sendSingleAPDU(JSONArray data, CallbackContext callbackContext) throws JSONException {
+    private void sendAPDU(JSONArray data, CallbackContext callbackContext) throws JSONException {
         // Ambil APDU dari parameter pertama
         String apduHex = data.getString(0);
         Tag tag = savedIntent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
