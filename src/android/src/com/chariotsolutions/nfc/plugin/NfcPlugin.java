@@ -76,7 +76,7 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
     private CallbackContext handoverCallback;
 
     // TAMBAH SETELAHNYA:
-    private static final String SEND_APDU = "sendApdu";
+    private static final String SEND_APDU = "sendAPDU";
 
     @Override
     public boolean execute(String action, JSONArray data, CallbackContext callbackContext) throws JSONException {
@@ -827,89 +827,80 @@ public class NfcPlugin extends CordovaPlugin implements NfcAdapter.OnNdefPushCom
 
     // TAMBAH SETELAH METHOD DI ATAS, SEBELUM } terakhir:
 
-    // ==================== APDU METHOD ====================
-    private void sendApdu(JSONArray data, final CallbackContext callbackContext) throws JSONException {
-        final String hexCommand = data.getString(0);
+    /**
+     * Kirim single APDU command ke kartu
+     * Data: ["APDU_HEX_STRING"]
+     */
+    private void sendSingleAPDU(JSONArray data, CallbackContext callbackContext) throws JSONException {
+        // Ambil APDU dari parameter pertama
+        String apduHex = data.getString(0);
+        Tag tag = savedIntent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
+    
+        if (tag == null) {
+            callbackContext.error("No NFC tag found. Tap card first.");
+            return;
+        }
     
         cordova.getThreadPool().execute(new Runnable() {
             @Override
             public void run() {
-                try {
-                    // 1. Check if we have a saved tag from previous NFC tap
-                    if (savedIntent == null) {
-                        callbackContext.error("No NFC tag found. Please tap a card first.");
-                        return;
-                    }
+            try {
+                // Cek kartu support ISO-DEP (untuk e-money/bank card)
+                IsoDep isoDep = IsoDep.get(tag);
+                if (isoDep == null) {
+                    callbackContext.error("Card does not support ISO-DEP (not an e-money/bank card)");
+                    return;
+                }
                 
-                    // 2. Get the Tag object from saved intent
-                    Tag tag = savedIntent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
-                    if (tag == null) {
-                        callbackContext.error("NFC tag is null");
-                        return;
-                    }
+                // Buka koneksi ke kartu
+                isoDep.connect();
+                isoDep.setTimeout(5000); // Timeout 5 detik
                 
-                    // 3. Try to get IsoDep for eMoney cards
-                    IsoDep isoDep = IsoDep.get(tag);
-                    if (isoDep == null) {
-                        callbackContext.error("Card doesn't support ISO-DEP (ISO 14443-4). This might not be an eMoney card.");
-                        return;
-                    }
+                // Convert hex string ke byte array
+                byte[] command = hexStringToByteArray(apduHex);
                 
-                    // 4. Convert hex string to byte array
-                    byte[] command = hexStringToByteArray(hexCommand);
+                // Kirim APDU ke kartu
+                byte[] response = isoDep.transceive(command);
                 
-                    // 5. Connect and send APDU command
-                    isoDep.connect();
-                    isoDep.setTimeout(10000); // 10 second timeout
-                    byte[] response = isoDep.transceive(command);
-                    isoDep.close();
+                // Tutup koneksi
+                isoDep.close();
                 
-                    // 6. Convert response to hex string
-                    String hexResponse = bytesToHex(response);
-                    Log.d(TAG, "APDU Response: " + hexResponse);
+                // Convert response ke hex string
+                String hexResponse = bytesToHex(response);
                 
-                    // 7. Send back to JavaScript
-                    callbackContext.success(hexResponse);
+                // Kirim response balik ke JavaScript
+                callbackContext.success(hexResponse);
                 
                 } catch (IOException e) {
-                    callbackContext.error("NFC Communication Error: " + e.getMessage());
-                    Log.e(TAG, "APDU IO Error", e);
+                    callbackContext.error("IO Error: " + e.getMessage());
                 } catch (Exception e) {
                     callbackContext.error("Error: " + e.getMessage());
-                    Log.e(TAG, "APDU Error", e);
                 }
             }
         });
     }
 
-    // ==================== HELPER METHODS ====================
-    private byte[] hexStringToByteArray(String hexString) {
-        if (hexString == null || hexString.length() % 2 != 0) {
+    // Helper: Convert hex string to byte array
+    private byte[] hexStringToByteArray(String s) {
+        if (s == null || s.trim().isEmpty()) {
             return new byte[0];
         }
-    
-        int len = hexString.length();
+        s = s.replace(" ", ""); // Remove spaces
+        int len = s.length();
         byte[] data = new byte[len / 2];
         for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte) ((Character.digit(hexString.charAt(i), 16) << 4)
-                                 + Character.digit(hexString.charAt(i + 1), 16));
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
+                             + Character.digit(s.charAt(i + 1), 16));
         }
         return data;
     }
 
+    // Helper: Convert byte array to hex string
     private String bytesToHex(byte[] bytes) {
-        if (bytes == null) {
-            return "";
-        }
-    
-        StringBuilder hexString = new StringBuilder();
+        if (bytes == null) return "";
+        StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
-            String hex = Integer.toHexString(0xFF & b);
-            if (hex.length() == 1) {
-                hexString.append('0');
-            }
-            hexString.append(hex);
+            sb.append(String.format("%02X", b));
         }
-        return hexString.toString().toUpperCase();
-    }
-}
+        return sb.toString();
+    }    
